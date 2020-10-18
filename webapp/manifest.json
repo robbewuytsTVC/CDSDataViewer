@@ -144,5 +144,9 @@
 	"sap.platform.abap": {
 		"uri": "/sap/bc/ui5_ui5/sap/yy1_cds_viewer/webapp",
 		"_version": "1.1.0"
+	},
+	"sap.platform.hcp": {
+		"uri": "webapp",
+		"_version": "1.1.0"
 	}
 }

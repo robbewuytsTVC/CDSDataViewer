@@ -2,8 +2,10 @@ sap.ui.define([
 	"./BaseController",
 	"sap/ui/model/json/JSONModel",
 	"../model/formatter",
-	"sap/m/library"
-], function (BaseController, JSONModel, formatter, mobileLibrary) {
+	"../util/DateTime",
+	"sap/m/library",
+	"sap/ui/core/Fragment"
+], function (BaseController, JSONModel, formatter, DateTime, mobileLibrary, Fragment) {
 	"use strict";
 
 	// shortcut for sap.m.URLHelper
@@ -26,15 +28,264 @@ sap.ui.define([
 				delay: 0
 			});
 
-			oViewModel.setSizeLimit(9999999);
+			// create popover
+			this._oParameterPopover = sap.ui.xmlfragment("com.adbsafegate.CDSViewer.view.fragment.ParametersPopover", this);
+			this.getView().addDependent(this._oParameterPopover);
 
-			this._oDataModel = this.getView().getModel();
+			// search SmartFormGroup globally as it is located in the UI static area!
+			sap.ui.getCore().byId("smartParametersFormGroup").bindAggregation("groupElements", "detailView>/Parameters", function () {
+				return new sap.ui.comp.smartform.GroupElement({
+					elements: [
+						new sap.m.Label({
+							text: {
+								parts: [{
+									path: 'detailView>Description'
+								}, {
+									path: 'detailView>Name'
+								}],
+								//formatter can be defined only here and not in formatter class for building UI dynamically
+								formatter: function (sDescription, sName) {
+									if (sDescription === "") {
+										return sName;
+									} else {
+										return sDescription;
+									}
+								}
+							}
+						}),
+						new sap.m.Input({
+							value: "{detailView>Value}",
+							visible: {
+								parts: [{
+									path: 'detailView>DataType'
+								}],
+								formatter: function (sDataType) {
+									if (sDataType === "DATS" || sDataType === "TIMS") {
+										return false;
+									} else {
+										return true;
+									}
+								}
+							}
+						}),
+						new sap.m.DatePicker({
+							value: "{detailView>Value}",
+							visible: {
+								parts: [{
+									path: 'detailView>DataType'
+								}],
+								formatter: function (sDataType) {
+									if (sDataType === "DATS") {
+										return true;
+									} else {
+										return false;
+									}
+								}
+							}
+						}),
+						new sap.m.TimePicker({
+							value: "{detailView>Value}",
+							visible: {
+								parts: [{
+									path: 'detailView>DataType'
+								}],
+								formatter: function (sDataType) {
+									if (sDataType === "TIMS") {
+										return true;
+									} else {
+										return false;
+									}
+								}
+							}
+						})
+					]
+				});
+			});
+
+			oViewModel.setSizeLimit(9999999);
 
 			this.getRouter().getRoute("object").attachPatternMatched(this._onObjectMatched, this);
 
 			this.setModel(oViewModel, "detailView");
 
 			this.getOwnerComponent().getModel().metadataLoaded().then(this._onMetadataLoaded.bind(this));
+		},
+
+		_getComparisonTemplate: function (aColumns) {
+			var aElements = [];
+			aColumns.forEach(function (elem) {
+				aElements.push(new sap.ui.layout.BlockLayoutCell({
+					content: [
+						new sap.m.HBox({
+							items: [
+								new sap.m.Label({
+									text: elem.NAME ? elem.NAME : elem.DESCRIPTION
+								})
+							]
+						}),
+						new sap.m.HBox({
+							items: [
+								new sap.m.Text({
+									text: "{detailView>" + elem.PROPERTY + "}"
+								})
+							]
+						})
+					]
+				}));
+
+			})
+			var oCard = new sap.f.Card({
+				content: [
+					new sap.ui.layout.VerticalLayout({
+						width: "100%",
+						content: [
+							new sap.ui.layout.BlockLayout({
+								content: [
+									new sap.ui.layout.BlockLayoutRow({
+										content: [
+											aElements
+										]
+									})
+								]
+							})
+						]
+					})
+				]
+
+			})
+
+			oCard.addStyleClass("sapUiTinyMarginTop");
+			return oCard;
+
+			// var aGroupElements = [];
+			// aColumns.forEach(function (elem) {
+			// 	aGroupElements.push(
+			// 		new sap.ui.comp.smartform.GroupElement({
+			// 			elements: [
+			// 				new sap.m.Label({
+			// 					text: elem.NAME ? elem.NAME : elem.DESCRIPTION
+			// 				}),
+			// 				new sap.m.Text({
+			// 					text: "{detailView>" + elem.PROPERTY + "}"
+			// 				})
+			// 			]
+
+			// 		})
+			// 	)
+			// })
+			// return new sap.ui.comp.smartform.SmartForm({
+			// 	groups: [new sap.ui.comp.smartform.Group({
+			// 		groupElements: aGroupElements
+			// 	})]
+			// });
+		},
+
+		handleApplyParametersPress: function () {
+			var aParameters = this.getView().getModel("detailView").getProperty("/Parameters"),
+				sDDlName = this._sDDlName;
+
+			// Backend expects params to look like this: "( P_LANGU = 'E', P_TEST = 'E' )"
+			// The API we use expects the values with the EXACT keyword
+			// e.g. SELECT * FROM A0_MOCK_DISP_CUST_P( p_1 = 'E', p_2 = 'E', p_3 = @( EXACT #( 34323 ) ) )
+			var oDateInput = null;
+			var oDateTimeInput = null;
+			var sParameters = "(";
+			for (var i = 0; i < aParameters.length; i++) {
+				if (i > 0) {
+					sParameters += ", ";
+				}
+				if (aParameters[i].DataType === "TIMS") {
+					oDateTimeInput = null;
+					oDateTimeInput = new sap.m.TimePicker({
+						valueFormat: "HHmmss",
+						value: aParameters[i].Value,
+						displayFormat: DateTime.getDisplayFormatForTimeInput()
+					});
+					aParameters[i].Value = DateTime.formatTimeToAbap(oDateTimeInput.getDateValue());
+				}
+				if (aParameters[i].DataType === "DATS") {
+					oDateInput = null;
+					oDateInput = new sap.m.DatePicker({
+						dateValue: DateTime.getJsDateObjectFromAbapDate(aParameters[i].Value),
+						displayFormat: DateTime.getDisplayFormatForDatePicker()
+					});
+					aParameters[i].Value = DateTime.formatDateToAbap(oDateInput.getDateValue());
+				}
+				sParameters += (" " + aParameters[i].Name + " = @( EXACT #( '" + aParameters[i].Value + "' ) )");
+			}
+			sParameters += " )";
+
+			this.fetchPreviewData(sDDlName, sParameters);
+
+			this._oParameterPopover.close();
+
+		},
+
+		handleCompareBtnPressed: function () {
+			var oView = this.getView();
+			// Fragment.load({
+			// 	name: "com.adbsafegate.CDSViewer.view.fragment.ComparisonDialog"
+			// }).then(function (oComparisonDialog) {
+			// 	oView.addDependent(oDialog);
+			// 	oComparisonDialog.open();
+			// });
+			if (!this._oComparisonDialog) {
+				this._oComparisonDialog = sap.ui.xmlfragment("com.adbsafegate.CDSViewer.view.fragment.ComparisonDialog", this);
+				oView.addDependent(this._oComparisonDialog);
+
+			};
+			var oTemplate = this._comparisonTemplate;
+
+			this._oComparisonDialog.getContent()[0].bindAggregation('pages', {
+				path: 'detailView>/selectedObjects',
+				template: oTemplate
+			})
+			this._oComparisonDialog.open()
+		},
+
+		onSelection: function (oEvent) {
+			debugger;
+			var iSelectedItemsCount,
+				bShowCompareButton,
+				oTable = oEvent.getSource(),
+				aSelectedIndices = oTable.getSelectedIndices(),
+				aSelectedObjects = [];
+
+			debugger;
+
+			// iSelectedItemsCount = this.getOwnerComponent().aSelectedItems.length;
+			// bShowCompareButton = iSelectedItemsCount > 1;
+
+			aSelectedIndices.forEach(function (i) {
+				aSelectedObjects.push(oTable.getContextByIndex(i).getObject())
+			})
+
+			this.getModel("detailView").setProperty("/selectedObjects", aSelectedObjects);
+			this.getModel("detailView").setProperty("/noSelectedObjects", aSelectedObjects.length);
+
+			// if (bShowCompareButton) {
+			// 	this._oCompareButton.setText("Compare (" + this.getOwnerComponent().aSelectedItems.length + ")");
+			// }
+
+			// this._oCompareButton.setVisible(bShowCompareButton);
+		},
+
+		// comparisonFactory: function (sId, oContext) {
+		// 	return this._comparisonTemplate;
+		// },
+
+		onCloseDialogPressed: function (oEvent) {
+			oEvent.getSource().getParent().close();
+		},
+
+		handleResetParametersPress: function () {
+
+			// reset all user entered values to the default values given from backend
+			var aParameters = this.getView().getModel("detailView").getProperty("/Parameters");
+			aParameters.forEach(function (oParam) {
+				oParam.Value = oParam.DefaultValue;
+			});
+			this.getView().getModel("detailView").setProperty("/Parameters", aParameters);
 		},
 
 		/* =========================================================== */
@@ -53,6 +304,20 @@ sap.ui.define([
 				oViewModel.getProperty("/shareSendEmailSubject"),
 				oViewModel.getProperty("/shareSendEmailMessage")
 			);
+		},
+		
+		onShowAllPressed: function(oEvent){
+			this.getView().getModel('detailView').getProperty('/columns').forEach(function(item){
+				item._hidden = false;
+			});
+			this.getView().getModel('detailView').refresh();
+		},
+		
+		onHideAllPressed: function(oEvent){
+			this.getView().getModel('detailView').getProperty('/columns').forEach(function(item){
+				item._hidden = true;
+			});
+			this.getView().getModel('detailView').refresh();
 		},
 
 		/**
@@ -86,6 +351,7 @@ sap.ui.define([
 		 */
 		_onObjectMatched: function (oEvent) {
 			var sObjectId = oEvent.getParameter("arguments").objectId;
+			this._sDDlName = sObjectId;
 			this.getModel("appView").setProperty("/layout", "TwoColumnsMidExpanded");
 			this.getModel().metadataLoaded().then(function () {
 
@@ -103,6 +369,8 @@ sap.ui.define([
 		_bindView: function (sObjectId) {
 			// Set busy indicator during view binding
 			// var oViewModel = this.getModel("detailView");
+			var oDataPreviewModel = this.getModel("detailView");
+			oDataPreviewModel.setProperty("/busy", true);
 
 			var sObjectPath = this.getView().getModel().createKey("CDSViewSet", {
 				DDLName: sObjectId,
@@ -111,6 +379,9 @@ sap.ui.define([
 
 			this.getView().bindElement({
 				path: "/" + sObjectPath,
+				parameters: {
+			      expand: "CDSViewDependentObjectSet"
+			    },
 				events: {
 					change: this._onBindingChange.bind(this, sObjectId),
 					dataRequested: function () {
@@ -161,13 +432,13 @@ sap.ui.define([
 		// 	this._updateListItemCount(oEvent.getSource().getRows().length);
 		// },
 
-		fetchPreviewData: function (sDdlName) {
+		fetchPreviewData: function (sDdlName, sParameters) {
 			var that = this;
 			var oDataPreviewModel = this.getModel("detailView");
 
 			oDataPreviewModel.setProperty("/busy", true);
 
-			this.readDataSourcePreviewAndReturnPromise(sDdlName, false, null, "99999").then(function (
+			this.readDataSourcePreviewAndReturnPromise(sDdlName, false, sParameters, "99999").then(function (
 				aTableMetadata,
 				aTableData) {
 
@@ -175,7 +446,9 @@ sap.ui.define([
 
 				oDataPreviewModel.setProperty("/rows", aTableData.data);
 				oDataPreviewModel.setProperty("/columns", aTableMetadata);
-
+				oDataPreviewModel.setProperty("/selectedObjects", []);
+				oDataPreviewModel.setProperty("/noSelectedObjects", 0);
+				
 				let iCount = aTableData.data ? aTableData.data.length : 0;
 
 				that._updateListItemCount(iCount)
@@ -210,6 +483,7 @@ sap.ui.define([
 							template: new sap.m.Text({
 								text: "{detailView>" + oColumnDefinition.PROPERTY + "}"
 							}),
+							visible: "{= ${detailView>_hidden} === true ? false :  true }",
 							sortProperty: oColumnDefinition.PROPERTY,
 							filterProperty: oColumnDefinition.PROPERTY,
 							filterOperator: formatter.isNumericDataType(sDataType) || formatter.isDateTimeDataType(sDataType) ? "EQ" : "Contains",
@@ -247,9 +521,27 @@ sap.ui.define([
 				// 	that._updateListItemCount(e.getSource().aIndices);
 				// })
 				oDataPreviewModel.setProperty("/busy", false);
+
+				that._comparisonTemplate = that._getComparisonTemplate(aTableMetadata);
+
 			}, function () {
 				oDataPreviewModel.setProperty("/busy", false);
 			});
+		},
+		
+		handleOpenColumnVisibilityDialog: function () {
+			if (!this._oColumnVisibilityDialog) {
+				Fragment.load({
+					name: "com.adbsafegate.CDSViewer.view.fragment.ColumnVisibilityDialog",
+					controller: this
+				}).then(function(oDialog){
+					this._oColumnVisibilityDialog = oDialog;
+					this.getView().addDependent(this._oColumnVisibilityDialog);
+					this._oColumnVisibilityDialog.open();
+				}.bind(this));
+			} else {
+				this._oColumnVisibilityDialog.open();
+			}
 		},
 
 		_readParameters: function (sDdlName) {
@@ -276,17 +568,24 @@ sap.ui.define([
 			});
 		},
 
+		handleParameterLinkPressed: function () {
+			// delay because addDependent will do a async rerendering and the actionSheet will immediately close without it.
+			var oSource = this.getView().byId("openParameterPopoverButton");
+			jQuery.sap.delayedCall(0, this, function () {
+				this._oParameterPopover.openBy(oSource);
+			});
+		},
+
 		readDataSourceParametersAndReturnPromise: function (sDdlDocumentName) {
 			var oDeferred = new jQuery.Deferred();
+			var oModel = this.getView().getModel();
 
-			var sObjectPath = this._oDataModel.createKey("CDSViewSet", {
+			var sObjectPath = oModel.createKey("CDSViewSet", {
 				DDLName: sDdlDocumentName,
 				DraftIndicator: false
 			});
 
-			//var that = this;
-
-			this._oDataModel.read("/" + sObjectPath + "/CDSViewParameterSet", {
+			oModel.read("/" + sObjectPath + "/CDSViewParameterSet", {
 				success: function (oData) {
 					try {
 						if (!(oData && oData.results)) {
@@ -369,7 +668,7 @@ sap.ui.define([
 			return oDeferred.promise();
 		},
 
-		_onBindingChange: function (oCtxt, sObjectId) {
+		_onBindingChange: function (sObjectId) {
 			var oView = this.getView(),
 				oElementBinding = oView.getElementBinding(),
 				oViewModel = this.getModel("detailView"),
@@ -387,14 +686,15 @@ sap.ui.define([
 			if (oElementBinding.getBoundContext().getObject().HasParameterIndicator === true) {
 				// reset columns so that table does not show outdated data
 				oViewModel.setProperty("/rows", []);
+				oViewModel.setProperty("/columns", []);
 
-				this.readParameters(sObjectId);
+				this._readParameters(sObjectId);
 				// override original text with remark that parameters have to be filled out
-				oDataPreviewTable.setNoData(i18n.getProperty("ymsg.parametersToBeFilledOut"));
+				oDataPreviewTable.setNoData(this.getModel("i18n").getProperty("parametersToBeFilledOut"));
 
 			} else {
 				// restore original text
-				oDataPreviewTable.setNoData(i18n.getProperty("ymsg.noData"));
+				oDataPreviewTable.setNoData(this.getModel("i18n").getProperty("noData"));
 				// trigger data preview data retrieval
 				this.fetchPreviewData(sObjectId);
 			}

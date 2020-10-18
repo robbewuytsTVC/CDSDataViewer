@@ -1,0 +1,45 @@
+<core:FragmentDefinition xmlns="sap.m" xmlns:core="sap.ui.core">
+	<Dialog contentWidth="800px">
+		<content>
+			<Table id="idProductsTable" inset="false" items="{ path: 'detailView>/columns' }">
+				<headerToolbar>
+					<OverflowToolbar>
+						<content>
+							<Title text="Column visibility" level="H2"/>
+							<ToolbarSpacer/>
+							<Button text="Hide all" press="onHideAllPressed"/>
+							<Button text="Show all" press="onShowAllPressed"/>
+						</content>
+					</OverflowToolbar>
+				</headerToolbar>
+				<columns>
+					<Column width="40%">
+						<Text text="Name"/>
+					</Column>
+					<Column width="40%">
+						<Text text="Description"/>
+					</Column>
+					<Column>
+						<Text text="Hidden"/>
+					</Column>
+				</columns>
+				<items>
+					<ColumnListItem>
+						<cells>
+							<ObjectIdentifier title="{detailView>NAME}"/>
+							<Text text="{detailView>DESCRIPTION}"/>
+							<Switch state="{detailView>_hidden}" customTextOn="Yes" customTextOff="No">
+								<layoutData>
+									<FlexItemData growFactor="1"/>
+								</layoutData>
+							</Switch>
+						</cells>
+					</ColumnListItem>
+				</items>
+			</Table>
+		</content>
+		<endButton>
+			<Button text="Close" press="onCloseDialogPressed"></Button>
+		</endButton>
+	</Dialog>
+</core:FragmentDefinition>
